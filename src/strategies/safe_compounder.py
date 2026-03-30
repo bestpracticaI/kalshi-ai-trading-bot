@@ -348,33 +348,87 @@ class SafeCompounder:
         return stats
 
     async def _fetch_all_markets(self) -> List[Dict]:
-        """Fetch all active markets from Kalshi."""
+        """Fetch all active markets from Kalshi via events API.
+        
+        The /markets endpoint now only returns MVE (parlay) tickers (KXMVE*).
+        Real individual markets live under events, so we fetch events with
+        nested markets to get the actual tradeable universe.
+        Falls back to /markets if events API fails.
+        """
         all_markets = []
+        seen_tickers = set()
+        
+        # Primary: fetch via events API (gets real individual markets)
         cursor = None
         page = 0
-        while True:
-            try:
-                params = {"status": "open", "limit": 200}
+        try:
+            while True:
+                params = {"status": "open", "limit": 100, "with_nested_markets": "true"}
                 if cursor:
                     params["cursor"] = cursor
-
-                resp = await self.client.get_markets(**params)
-                markets = resp.get("markets", [])
-                all_markets.extend(markets)
-
+                
+                resp = await self.client._make_authenticated_request(
+                    "GET", "/trade-api/v2/events", params=params
+                )
+                events = resp.get("events", [])
+                if not events:
+                    break
+                
+                for event in events:
+                    for m in event.get("markets", []):
+                        ticker = m.get("ticker", "")
+                        if ticker and ticker not in seen_tickers:
+                            seen_tickers.add(ticker)
+                            # Carry event category into market for filtering
+                            m["_event_category"] = event.get("category", "")
+                            m["_event_title"] = event.get("title", "")
+                            all_markets.append(m)
+                
                 cursor = resp.get("cursor")
-                if not cursor or not markets:
+                if not cursor:
                     break
-
+                
                 page += 1
-                if page > 50:  # Safety cap
+                if page > 100:  # Safety cap
                     break
-
+                
                 await asyncio.sleep(0.1)
-            except Exception as e:
-                logger.error("Error fetching markets page %d: %s", page, e)
-                break
-
+        except Exception as e:
+            logger.warning("Events API failed, falling back to /markets: %s", e)
+        
+        # Fallback: also fetch /markets for any we missed (includes MVE)
+        if len(all_markets) < 100:
+            logger.info("Few markets from events (%d), also fetching /markets", len(all_markets))
+            cursor = None
+            page = 0
+            while True:
+                try:
+                    params = {"status": "open", "limit": 200}
+                    if cursor:
+                        params["cursor"] = cursor
+                    
+                    resp = await self.client.get_markets(**params)
+                    markets = resp.get("markets", [])
+                    for m in markets:
+                        ticker = m.get("ticker", "")
+                        if ticker and ticker not in seen_tickers:
+                            seen_tickers.add(ticker)
+                            all_markets.append(m)
+                    
+                    cursor = resp.get("cursor")
+                    if not cursor or not markets:
+                        break
+                    
+                    page += 1
+                    if page > 50:
+                        break
+                    
+                    await asyncio.sleep(0.1)
+                except Exception as e:
+                    logger.error("Error fetching markets page %d: %s", page, e)
+                    break
+        
+        logger.info("Fetched %d unique markets (%d from events)", len(all_markets), len(seen_tickers))
         return all_markets
 
     def _find_no_candidates(self, markets: List[Dict]) -> List[Dict]:
@@ -423,6 +477,20 @@ class SafeCompounder:
             })
 
         logger.info("Found %d NO-side candidates (YES last <= $0.20)", len(candidates))
+        
+        # Sort by estimated edge potential: lowest YES price + highest volume + soonest expiry
+        # Then cap to top 500 to keep orderbook checks under ~1 minute
+        MAX_ORDERBOOK_CHECKS = 500
+        if len(candidates) > MAX_ORDERBOOK_CHECKS:
+            candidates.sort(key=lambda c: (
+                -c["_true_no_prob"],  # Highest estimated NO probability first
+                -float(c.get("volume_fp", 0) or c.get("volume", 0) or 0),  # Highest volume
+                c["_hours_to_expiry"],  # Soonest expiry
+            ))
+            logger.info("Capping to top %d candidates (from %d) for orderbook checks",
+                        MAX_ORDERBOOK_CHECKS, len(candidates))
+            candidates = candidates[:MAX_ORDERBOOK_CHECKS]
+        
         return candidates
 
     async def _check_orderbook_and_price(self, candidates: List[Dict]) -> List[Dict]:
