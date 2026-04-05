@@ -25,6 +25,7 @@ import asyncio
 import logging
 import math
 import time
+import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional, Tuple
 
@@ -679,8 +680,10 @@ class SafeCompounder:
             try:
                 # Convert dollar price to cents for API call
                 price_cents = int(price * 100)
+                client_order_id = str(uuid.uuid4())
                 r = await self.client.place_order(
                     ticker=ticker,
+                    client_order_id=client_order_id,
                     side="no",
                     action="buy",
                     count=contracts,
