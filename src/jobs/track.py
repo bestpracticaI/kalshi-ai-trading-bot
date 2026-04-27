@@ -173,7 +173,9 @@ async def run_tracking(db_manager: Optional[DatabaseManager] = None):
 
         logger.info(f"Found {len(open_positions)} open positions to track.")
 
-        exits_executed = 0
+        resolution_exits = 0       # markets that auto-settled — no sell order needed
+        exit_sell_orders_placed = 0  # sell orders we successfully placed
+        exit_sell_failures = 0       # exits we tried to execute but couldn't place a sell
         for position in open_positions:
             try:
                 # Get current market data
@@ -212,10 +214,44 @@ async def run_tracking(db_manager: Optional[DatabaseManager] = None):
                         f"Exiting position {position.market_id} due to {exit_reason}. "
                         f"Entry: {position.entry_price:.3f}, Exit: {exit_price:.3f}"
                     )
-                    
+
+                    # For non-resolution exits, place a real sell order on Kalshi
+                    # before touching the DB. Kalshi auto-settles resolved markets,
+                    # so we skip order placement only in the market_resolution case.
+                    is_resolution = (exit_reason == "market_resolution")
+
+                    if not is_resolution:
+                        # Sanity guard: a $0 exit on an active market means we're
+                        # working from bad market data. Refuse to write a phantom
+                        # close — was the source of issue #49.
+                        if exit_price <= 0.0:
+                            logger.error(
+                                f"Refusing to close {position.market_id}: exit_price={exit_price:.3f} "
+                                f"on non-resolution exit ({exit_reason}). Likely missing market data; "
+                                f"will retry next cycle."
+                            )
+                            exit_sell_failures += 1
+                            continue
+
+                        from src.jobs.execute import place_sell_limit_order
+                        sell_ok = await place_sell_limit_order(
+                            position=position,
+                            limit_price=exit_price,
+                            db_manager=db_manager,
+                            kalshi_client=kalshi_client,
+                        )
+                        if not sell_ok:
+                            logger.error(
+                                f"Sell order failed for {position.market_id} ({exit_reason}); "
+                                f"position remains open. Will retry next cycle."
+                            )
+                            exit_sell_failures += 1
+                            continue
+                        exit_sell_orders_placed += 1
+
                     # Calculate PnL
                     pnl = (exit_price - position.entry_price) * position.quantity
-                    
+
                     # Create trade log
                     trade_log = TradeLog(
                         market_id=position.market_id,
@@ -229,11 +265,15 @@ async def run_tracking(db_manager: Optional[DatabaseManager] = None):
                         rationale=f"{position.rationale} | EXIT: {exit_reason}"
                     )
 
-                    # Record the exit
+                    # Record the exit. For non-resolution exits the sell order
+                    # may still be resting unfilled — the local DB now optimistically
+                    # treats it as closed, which mirrors the existing behavior of
+                    # place_profit_taking_orders / place_stop_loss_orders.
                     await db_manager.add_trade_log(trade_log)
                     await db_manager.update_position_status(position.id, 'closed')
-                    
-                    exits_executed += 1
+
+                    if is_resolution:
+                        resolution_exits += 1
                     logger.info(
                         f"Position for market {position.market_id} closed via {exit_reason}. "
                         f"PnL: ${pnl:.2f}"
@@ -253,7 +293,13 @@ async def run_tracking(db_manager: Optional[DatabaseManager] = None):
             except Exception as e:
                 logger.error(f"Failed to process position for market {position.market_id}.", error=str(e))
 
-        logger.info(f"Position tracking completed. Sell orders: {total_sell_orders}, Market exits: {exits_executed}")
+        logger.info(
+            f"Position tracking completed. "
+            f"Profit/SL sell orders: {total_sell_orders}, "
+            f"Resolution exits: {resolution_exits}, "
+            f"Exit sell orders placed: {exit_sell_orders_placed}, "
+            f"Exit failures (still open): {exit_sell_failures}"
+        )
 
     except Exception as e:
         logger.error("Error in position tracking job.", error=str(e), exc_info=True)
