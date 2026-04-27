@@ -367,6 +367,128 @@ def cmd_history(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def cmd_close_all(args: argparse.Namespace) -> None:
+    """Place sell orders to close every open position on Kalshi.
+
+    Use this AFTER stopping the bot (Ctrl-C). It queries Kalshi directly
+    rather than the local DB, so it works even if local state is stale.
+    Each position gets a limit sell at the current best bid for its side
+    — marketable, but no guaranteed fill if the book is thin.
+    """
+    import uuid
+
+    auto_yes = getattr(args, "yes", False)
+    live_mode = getattr(args, "live", False)
+
+    print("=" * 56)
+    print("  CLOSE ALL POSITIONS")
+    print("=" * 56)
+    if not live_mode:
+        print("  DRY RUN — no orders will be sent. Pass --live to actually sell.")
+    print()
+    print("  WARNING: this places sell orders at the current best bid.")
+    print("  You may realize a loss on positions trading below entry.")
+    print("  Stop the bot first (Ctrl-C) before running this command.")
+    print()
+
+    if live_mode and not auto_yes:
+        confirm = input("  Type 'CLOSE ALL' to proceed: ").strip()
+        if confirm != "CLOSE ALL":
+            print("  Aborted.")
+            return
+
+    async def _close() -> None:
+        from src.clients.kalshi_client import KalshiClient
+        client = KalshiClient()
+        try:
+            positions_resp = await client.get_positions()
+            market_positions = [
+                p for p in positions_resp.get("market_positions", [])
+                if p.get("position", 0) != 0
+            ]
+
+            if not market_positions:
+                print("  No open positions on Kalshi.")
+                return
+
+            print(f"  Found {len(market_positions)} open position(s).")
+            print()
+
+            placed = 0
+            failed = 0
+            for pos in market_positions:
+                ticker = pos["ticker"]
+                contracts = pos["position"]            # signed: + YES, - NO
+                side = "yes" if contracts > 0 else "no"
+                quantity = abs(contracts)
+
+                try:
+                    book_resp = await client.get_orderbook(ticker, depth=1)
+                    book = book_resp.get("orderbook", {})
+                    side_bids = book.get(side, [])
+                    if not side_bids:
+                        print(f"  ⚠️  {ticker}: no {side.upper()} bids in book — skipping")
+                        failed += 1
+                        continue
+                    # Kalshi orderbook bid entries are [price_cents, count].
+                    # Best bid is the highest price.
+                    best_bid_cents = max(int(level[0]) for level in side_bids)
+                except Exception as exc:
+                    print(f"  ❌ {ticker}: orderbook fetch failed — {exc}")
+                    failed += 1
+                    continue
+
+                if not live_mode:
+                    print(
+                        f"  [DRY] would sell {quantity} {side.upper()} of {ticker} "
+                        f"at {best_bid_cents}¢ (~${best_bid_cents * quantity / 100:.2f})"
+                    )
+                    placed += 1
+                    continue
+
+                order_params = {
+                    "ticker": ticker,
+                    "client_order_id": str(uuid.uuid4()),
+                    "side": side,
+                    "action": "sell",
+                    "count": quantity,
+                    "type_": "limit",
+                }
+                if side == "yes":
+                    order_params["yes_price"] = best_bid_cents
+                else:
+                    order_params["no_price"] = best_bid_cents
+
+                try:
+                    resp = await client.place_order(**order_params)
+                    if resp and "order" in resp:
+                        print(
+                            f"  ✅ {ticker}: sell {quantity} {side.upper()} "
+                            f"@ {best_bid_cents}¢ — order_id={resp['order'].get('order_id', '?')}"
+                        )
+                        placed += 1
+                    else:
+                        print(f"  ❌ {ticker}: unexpected response {resp}")
+                        failed += 1
+                except Exception as exc:
+                    print(f"  ❌ {ticker}: order failed — {exc}")
+                    failed += 1
+
+            print()
+            print(f"  Placed: {placed} | Failed: {failed}")
+            print()
+            print("  Sell orders are limit-priced — they may rest unfilled if the book")
+            print("  moves. Check Kalshi or `python cli.py status` after a minute.")
+        finally:
+            await client.close()
+
+    try:
+        asyncio.run(_close())
+    except Exception as exc:
+        print(f"  Error: {exc}")
+        sys.exit(1)
+
+
 def cmd_backtest(args: argparse.Namespace) -> None:
     """Run backtests (placeholder)."""
     print("=" * 56)
@@ -631,6 +753,28 @@ def build_parser() -> argparse.ArgumentParser:
         description="Run a series of diagnostic checks: .env presence, API key configuration, Kalshi API connectivity, database initialization, and Python version.",
     )
     p_health.set_defaults(func=cmd_health)
+
+    # --- close-all ---
+    p_close = subparsers.add_parser(
+        "close-all",
+        help="Place limit sell orders to close every open position on Kalshi",
+        description=(
+            "Best-effort liquidation: query Kalshi for open positions and place "
+            "a limit sell at the current best bid for each. Run this AFTER stopping "
+            "the bot. Defaults to dry-run; pass --live to actually send orders."
+        ),
+    )
+    p_close.add_argument(
+        "--live",
+        action="store_true",
+        help="Actually place sell orders (default is a dry-run preview)",
+    )
+    p_close.add_argument(
+        "--yes",
+        action="store_true",
+        help="Skip the interactive 'CLOSE ALL' confirmation (dangerous)",
+    )
+    p_close.set_defaults(func=cmd_close_all)
 
     return parser
 
