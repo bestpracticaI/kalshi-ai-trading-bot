@@ -14,6 +14,7 @@ import argparse
 import asyncio
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 
 
@@ -46,7 +47,11 @@ def cmd_run(args: argparse.Namespace) -> None:
 
     # --safe-compounder mode: edge-based NO-side only
     if safe_compounder:
-        _run_safe_compounder(live_mode=live_mode)
+        _run_safe_compounder(
+            live_mode=live_mode,
+            loop=getattr(args, "loop", False),
+            interval=getattr(args, "interval", 300),
+        )
         return
 
     # --beast mode: original aggressive settings (NOT default)
@@ -87,8 +92,16 @@ def cmd_run(args: argparse.Namespace) -> None:
         print("\nTrading bot stopped by user.")
 
 
-def _run_safe_compounder(live_mode: bool = False) -> None:
-    """Run the Safe Compounder strategy."""
+def _run_safe_compounder(
+    live_mode: bool = False,
+    loop: bool = False,
+    interval: int = 300,
+) -> None:
+    """Run the Safe Compounder strategy.
+
+    When ``loop`` is True, run the strategy repeatedly with ``interval``
+    seconds between cycles until the user sends Ctrl-C.
+    """
     from src.clients.kalshi_client import KalshiClient
     from src.strategies.safe_compounder import SafeCompounder
 
@@ -96,21 +109,38 @@ def _run_safe_compounder(live_mode: bool = False) -> None:
     print("   NO-side only | Edge-based | Near-certain outcomes")
     if not live_mode:
         print("   DRY RUN — no real orders will be placed")
+    if loop:
+        print(f"   Continuous mode — re-running every {interval}s. Ctrl-C to stop.")
 
-    async def _run():
+    async def _run_once():
         client = KalshiClient()
         try:
             compounder = SafeCompounder(
                 client=client,
                 dry_run=not live_mode,
             )
-            stats = await compounder.run()
-            return stats
+            return await compounder.run()
         finally:
             await client.close()
 
+    async def _run_forever():
+        cycle = 0
+        while True:
+            cycle += 1
+            print(f"\n──── Cycle {cycle} — {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ────")
+            try:
+                await _run_once()
+            except Exception as exc:
+                # One bad cycle shouldn't kill the loop. Log and keep going.
+                print(f"Cycle {cycle} failed: {exc}. Continuing after {interval}s.")
+            print(f"\n⏳ Sleeping {interval}s before next cycle...")
+            await asyncio.sleep(interval)
+
     try:
-        asyncio.run(_run())
+        if loop:
+            asyncio.run(_run_forever())
+        else:
+            asyncio.run(_run_once())
     except KeyboardInterrupt:
         print("\nSafe Compounder stopped by user.")
 
@@ -527,6 +557,17 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         dest="safe_compounder",
         help="Safe Compounder: NO-side only, edge-based, near-certain outcomes",
+    )
+    p_run.add_argument(
+        "--loop",
+        action="store_true",
+        help="Re-run the strategy continuously (only honored by --safe-compounder today)",
+    )
+    p_run.add_argument(
+        "--interval",
+        type=int,
+        default=300,
+        help="Seconds between cycles when --loop is set (default: 300)",
     )
     p_run.add_argument(
         "--log-level",
