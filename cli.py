@@ -407,7 +407,19 @@ def cmd_health(args: argparse.Namespace) -> None:
             balance_usd = balance_resp.get("balance", 0) / 100.0
             ok("Kalshi API connection", f"balance=${balance_usd:,.2f}")
         except Exception as exc:
-            fail("Kalshi API connection", str(exc))
+            msg = str(exc)
+            fail("Kalshi API connection", msg)
+            if "401" in msg or "authentication" in msg.lower():
+                print(
+                    "         A 401 from Kalshi almost always means one of:\n"
+                    "           - KALSHI_API_KEY in .env doesn't match the API key ID on Kalshi\n"
+                    "           - The private key file (default: kalshi_private_key.pem) is the\n"
+                    "             wrong key for that API key, or its path is wrong\n"
+                    "           - The API key was created on the Kalshi demo env but you're\n"
+                    "             pointing at production (or vice versa)\n"
+                    "         Re-download the key pair from Kalshi and verify both KALSHI_API_KEY\n"
+                    "         and KALSHI_PRIVATE_KEY_PATH (if set) point to the matching pair."
+                )
         finally:
             await client.close()
 
