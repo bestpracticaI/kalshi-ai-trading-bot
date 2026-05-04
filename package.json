@@ -1,7 +1,7 @@
 {
   "name": "kalshi-ai-trading-bot",
   "version": "2.0.0",
-  "description": "Kalshi AI trading bot — JavaScript/TypeScript implementation",
+  "description": "Kalshi prediction markets trading bot TypeScript Node.js algorithmic automated trading Kalshi REST API OpenRouter LLM CLI npm quant fintech event contracts",
   "repository": {
     "type": "git",
     "url": "https://github.com/bestpracticaI/kalshi-ai-trading-bot.git"

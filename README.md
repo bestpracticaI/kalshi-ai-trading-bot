@@ -7,6 +7,8 @@
 
 **Build and automate workflows around [Kalshi](https://kalshi.com) prediction markets** using TypeScript and Node.js — with a ready-made CLI, a signed Kalshi REST client, and helpers for calling models through [OpenRouter](https://openrouter.ai/).
 
+**GitHub:** [github.com/bestpracticaI/kalshi-ai-trading-bot](https://github.com/bestpracticaI/kalshi-ai-trading-bot) · keywords: Kalshi, prediction markets, trading bot, algorithmic trading, automated trading, TypeScript, Node.js, Kalshi API, REST, OpenRouter, quant, fintech, CLI, npm
+
 [What you get](#what-you-get) · [Requirements](#requirements) · [Install & first run](#install--first-run) · [CLI reference](#cli-reference) · [Configuration](#configuration) · [Troubleshooting](#troubleshooting)
 
 </div>

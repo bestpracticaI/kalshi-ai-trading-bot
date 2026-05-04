@@ -2,6 +2,8 @@
 
 Thanks for helping improve this project.
 
+Repository: **https://github.com/bestpracticaI/kalshi-ai-trading-bot**
+
 ## Setup
 
 - **Node.js** 18.18 or newer  
