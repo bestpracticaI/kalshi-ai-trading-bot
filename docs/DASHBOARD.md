@@ -1,3 +1,5 @@
+> **Note:** This document described the old Python + Streamlit dashboard, which is **no longer in this repository**. It is kept only as a loose feature checklist if you build a new dashboard in TypeScript.
+
 # Trading System Dashboard 📊
 
 A comprehensive Streamlit-based dashboard for monitoring and analyzing all aspects of your automated trading system.

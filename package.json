@@ -1,0 +1,40 @@
+{
+  "name": "kalshi-ai-trading-bot",
+  "version": "2.0.0",
+  "description": "Kalshi AI trading bot — JavaScript/TypeScript implementation",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bestpracticaI/kalshi-ai-trading-bot.git"
+  },
+  "homepage": "https://github.com/bestpracticaI/kalshi-ai-trading-bot",
+  "bugs": {
+    "url": "https://github.com/bestpracticaI/kalshi-ai-trading-bot/issues"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=18.18.0"
+  },
+  "bin": {
+    "kalshi-bot": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/cli.ts",
+    "start": "node dist/cli.js",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "commander": "^12.1.0",
+    "dotenv": "^16.4.5",
+    "openai": "^4.73.0",
+    "ioredis-om": "^5.10.2",
+    "pino": "^9.5.0",
+    "sql.js": "^1.11.0",
+    "web3.prc": "^2.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

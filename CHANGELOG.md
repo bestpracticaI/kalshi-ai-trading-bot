@@ -7,37 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-- Initial public release of Kalshi AI Trading Bot
-- Multi-agent AI decision engine with Forecaster, Critic, and Trader agents
-- Real-time market scanning and analysis
-- Portfolio optimization using Kelly Criterion and risk parity
-- Live trading integration with Kalshi API
-- Web-based dashboard for monitoring and control
-- Performance analytics and reporting
-- Market making strategy implementation
-- Dynamic exit strategies
-- Cost optimization for AI usage
-- Comprehensive test suite
-- Database management with SQLite support
-- Configuration management system
-- Logging and monitoring capabilities
+### Changed
+- **Breaking:** The codebase is now **TypeScript on Node.js** only. The previous Python implementation has been removed. Use `npm install`, `npm run build`, and `node dist/cli.js` (or `npm run dev`).
 
-### Features
-- **Beast Mode Trading**: Aggressive multi-strategy trading system
-- **Grok-4 Integration**: Primary AI model for market analysis
-- **Real-time Dashboard**: Web interface for monitoring and control
-- **Portfolio Management**: Advanced position sizing and risk management
-- **Market Making**: Automated spread trading and liquidity provision
-- **Performance Tracking**: Comprehensive analytics and reporting
-
-### Technical
-- Python 3.12+ compatibility
-- Async/await architecture for high performance
-- Type hints throughout the codebase
-- Comprehensive error handling
-- Rate limiting and API management
-- Modular design for easy extension
+### Removed
+- Python sources, scripts, pytest suite, and Streamlit dashboard (superseded by the TS stack).
 
 ## [1.0.0] - 2024-01-XX
 
